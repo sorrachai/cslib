@@ -21,6 +21,8 @@ The time complexity of `contains_bs` is the number of array accesses.
 - `bs_correct`: Given a key `q`, `contains_bs` returns some index
                 if and only if the array contains `q`.
 - `bs_time`: the number of array accesses is at most `Nat.log 2 (n-1) + 2`.
+- `bs_return_correct_idx` : Given a key `q`,
+                if `contains_bs` returns an index `i`, then `arr.get i = q`
 
 -/
 
@@ -40,18 +42,17 @@ def contains_bs {n : ℕ} (arr : SortedArrayFun α n) (q : α) : TimeM (Option �
   bs_aux 0 (n-1)
   where bs_aux (a b : ℕ) (h: a ≤ b := by omega): TimeM (Option ℕ) := do
   if h: a = b then
-    if q = arr.get a then ✓ (some a)
-    else ✓ none
+    let arr_a ← ✓ (arr.get a)
+    if q = arr_a then return (some a)
+    else return none
   else
-    let mid := (a+b)/(2 :ℕ)
-    let arr_mid := arr.get mid
+    let mid := (a+b)/2
+    let arr_mid ← ✓ (arr.get mid)
     if q < arr_mid then
-      let result ← bs_aux a mid
-      ✓ result
+      bs_aux a mid
     else if arr_mid < q then
-      let result ← bs_aux (mid+1) b
-      ✓ result
-    else ✓ (some mid)
+      bs_aux (mid+1) b
+    else return (some mid)
 
 theorem subinterval_to_interval_qlt {n : ℕ} (arr : SortedArrayFun α n) (q : α) (a mid b : ℕ)
   (h_bounds : a ≤ mid ∧ mid ≤ b)
@@ -100,18 +101,14 @@ theorem bs_correct (n : ℕ) (q : α) (h : 0 < n) (arr : SortedArrayFun α n) :
 where bs_correct_aux (n : ℕ) (q : α) (arr : SortedArrayFun α n) (a b : ℕ) (h_le : a ≤ b) :
 (∃ i, a ≤ i ∧ i ≤ b ∧ arr.get i = q) ↔ ((contains_bs.bs_aux arr q a b h_le).ret ≠ none) := by {
     fun_induction contains_bs.bs_aux
-    · simp_all only [le_refl, tick, ne_eq, reduceCtorEq, not_false_eq_true, iff_true]
-      use b_1
-    · simp
-      grind
-    · simp_all only [ne_eq, Bind.bind, tick, ret_bind]
-      rw [← ih1]
-      rw [subinterval_to_interval_qlt arr q a_1 mid b_1 (by grind) (by grind)]
-    · simp_all only [not_lt, ne_eq, Bind.bind, tick, ret_bind]
-      rw [← ih1]
-      rw [subinterval_to_interval_qgt arr q a_1 (mid) b_1 (by grind) (by grind)]
-    · simp only [tick, ne_eq, reduceCtorEq, not_false_eq_true, iff_true]
-      grind
+    · simp only [Bind.bind, tick, Pure.pure, pure, ret_bind, ne_eq]
+      split_ifs <;> grind
+    · simp_all only [ne_eq, Bind.bind, tick, Pure.pure, pure, ret_bind]
+      split_ifs <;> try grind
+      · rw [← ih2]
+        rw [subinterval_to_interval_qlt arr q a_1 mid b_1 (by grind) (by grind)]
+      · rw [← ih1]
+        rw [subinterval_to_interval_qgt arr q a_1 (mid) b_1 (by grind) (by grind)]
 }
 
 
@@ -124,23 +121,7 @@ theorem bs_return_correct_idx (n : ℕ) (q : α) (arr : SortedArrayFun α n) :
 where bs_return_correct_idx_aux (n : ℕ) (q : α) (a b : ℕ)
   (h_ab : a ≤ b) (arr : SortedArrayFun α n) :
   ∀ i : ℕ, (contains_bs.bs_aux arr q a b h_ab).ret = some i → arr.get i = q := by {
-    fun_induction contains_bs.bs_aux
-    · intro i hi
-      have h_eq : i = b_1 := by aesop
-      rw [h_eq]
-      apply Eq.symm
-      exact h_1
-    · intro i hi
-      contradiction
-    · intro i hi
-      apply ih1
-      exact hi
-    · intro i hi
-      apply ih1
-      exact hi
-    · intro i hi
-      have h_eq : i = mid := by aesop
-      grind
+    fun_induction contains_bs.bs_aux <;> all_goals (simp; split_ifs<;> grind)
   }
 
 -- This recursive function g has the smallest number of cases.
@@ -199,27 +180,25 @@ theorem bs_time (n : ℕ) (q : α) (arr : SortedArrayFun α n) :
 where bs_time_le_g (n : ℕ) (q : α) (arr : SortedArrayFun α n) (a b : ℕ) (h_le : a ≤ b) :
   (contains_bs.bs_aux arr q a b).time ≤ g (b-a) + 1 := by {
   fun_induction contains_bs.bs_aux arr q a b
-  · simp
-  · simp
-  · simp_all only [Bind.bind, tick, time_of_bind, add_le_add_iff_right]
-    grw [ih1]
-    subst mid
-    have: (b_1 - a_1)/2 = (a_1 + b_1) / 2 - a_1 := by grind
-    rw [← this]
-    conv =>
-      right
-      unfold g
-    split_ifs<;> try grind
-  · simp only [Bind.bind, tick, time_of_bind, add_le_add_iff_right]
-    grw [ih1]
-    subst mid
-    have: b_1 - ((a_1 + b_1) / 2 + 1) ≤ (b_1 - a_1)/2  := by grind
-    have gmono:= g_monotone
-    simp [Monotone] at gmono
-    conv =>
-      right
-      unfold g
+  · simp only [Bind.bind, tick, Pure.pure, pure, time_of_bind, tsub_self]
+    split_ifs <;> grind
+  · simp only [Bind.bind, tick, Pure.pure, pure, time_of_bind]
+    rw [Nat.add_comm (g (b_1 - a_1)) 1]
+    simp only [add_le_add_iff_left]
     split_ifs <;> try grind
-  · simp
+    · grw [ih2]
+      conv =>
+        right
+        unfold g
+      split_ifs <;> grind
+    · grw [ih1]
+      have: b_1 - ((a_1 + b_1) / 2 + 1) ≤ (b_1 - a_1)/2  := by grind
+      have gmono:= g_monotone
+      simp [Monotone] at gmono
+      conv =>
+        right
+        unfold g
+      split_ifs <;> grind
 }
+
 end TimeM
