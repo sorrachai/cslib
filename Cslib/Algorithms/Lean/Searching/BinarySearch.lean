@@ -20,9 +20,9 @@ The time complexity of `contains_bs` is the number of array accesses.
 
 - `bs_correct`: Given a key `q`, `contains_bs` returns some index
                 if and only if the array contains `q`.
-- `bs_time`: the number of array accesses is at most `Nat.log 2 (n-1) + 2`.
+- `bs_time`: the number of array accesses is at most `⌊log₂ (n-1)⌋ + 2 `.
 - `bs_return_correct_idx` : Given a key `q`,
-                if `contains_bs` returns an index `i`, then `arr.get i = q`
+                if `contains_bs` returns an index `i`, then `arr[i] = q`
 
 -/
 
@@ -36,18 +36,21 @@ structure SortedArrayFun (α : Type) [LinearOrder α] (n : ℕ) where
   size : ℕ := n
   sorted: Monotone get
 
+scoped notation a "[" i "]"  => SortedArrayFun.get a i
+
+
 variable {α : Type} [LinearOrder α]
 
 def contains_bs {n : ℕ} (arr : SortedArrayFun α n) (q : α) : TimeM (Option ℕ) :=
   bs_aux 0 (n-1)
   where bs_aux (a b : ℕ) (h: a ≤ b := by omega): TimeM (Option ℕ) := do
   if h: a = b then
-    let arr_a ← ✓ (arr.get a)
+    let arr_a ← ✓ (arr[a])
     if q = arr_a then return (some a)
     else return none
   else
     let mid := (a+b)/2
-    let arr_mid ← ✓ (arr.get mid)
+    let arr_mid ← ✓ (arr[mid])
     if q < arr_mid then
       bs_aux a mid
     else if arr_mid < q then
@@ -56,14 +59,14 @@ def contains_bs {n : ℕ} (arr : SortedArrayFun α n) (q : α) : TimeM (Option �
 
 theorem subinterval_to_interval_qlt {n : ℕ} (arr : SortedArrayFun α n) (q : α) (a mid b : ℕ)
   (h_bounds : a ≤ mid ∧ mid ≤ b)
-  (h_q : q < arr.get mid) :
-  (∃ i, a ≤ i ∧ i ≤ b ∧ arr.get i = q) ↔ (∃ i, a ≤ i ∧ i ≤ mid ∧ arr.get i = q)  := by
+  (h_q : q < arr[mid]) :
+  (∃ i, a ≤ i ∧ i ≤ b ∧ arr[i] = q) ↔ (∃ i, a ≤ i ∧ i ≤ mid ∧ arr[i] = q)  := by
   constructor
   · intro h'
     obtain ⟨i,hi⟩ := h'
     use i
     suffices  i ≤ mid by grind
-    replace hi: arr.get i = q := by grind
+    replace hi: arr[i] = q := by grind
     rw [← hi] at h_q
     have: Monotone arr.get := arr.sorted
     simp only [Monotone] at this
@@ -75,14 +78,14 @@ theorem subinterval_to_interval_qlt {n : ℕ} (arr : SortedArrayFun α n) (q : �
 
 theorem subinterval_to_interval_qgt {n : ℕ} (arr : SortedArrayFun α n) (q : α) (a mid b : ℕ)
   (h_bounds : a ≤ mid ∧ mid ≤ b)
-  (h_q : arr.get mid < q) :
-  (∃ i, a ≤ i ∧ i ≤ b ∧ arr.get i = q) ↔ (∃ i, (mid+1) ≤ i ∧ i ≤ b ∧ arr.get i = q)  := by
+  (h_q : arr[mid] < q) :
+  (∃ i, a ≤ i ∧ i ≤ b ∧ arr[i] = q) ↔ (∃ i, (mid+1) ≤ i ∧ i ≤ b ∧ arr[i] = q)  := by
   constructor
   · intro h'
     obtain ⟨i,hi⟩ := h'
     use i
     suffices  mid ≤ i by grind
-    replace hi: arr.get i = q := by grind
+    replace hi: arr[i] = q := by grind
     rw [← hi] at h_q
     have: Monotone arr.get := arr.sorted
     simp only [Monotone] at this
@@ -94,12 +97,12 @@ theorem subinterval_to_interval_qgt {n : ℕ} (arr : SortedArrayFun α n) (q : �
 
 
 theorem bs_correct (n : ℕ) (q : α) (h : 0 < n) (arr : SortedArrayFun α n) :
-  (∃ i, i < n ∧ arr.get i = q) ↔ ((contains_bs arr q).ret ≠ none) := by
+  (∃ i, i < n ∧ arr[i] = q) ↔ ((contains_bs arr q).ret ≠ none) := by
   unfold contains_bs
   have := bs_correct_aux n q arr 0 (n-1) (by omega)
   grind
 where bs_correct_aux (n : ℕ) (q : α) (arr : SortedArrayFun α n) (a b : ℕ) (h_le : a ≤ b) :
-(∃ i, a ≤ i ∧ i ≤ b ∧ arr.get i = q) ↔ ((contains_bs.bs_aux arr q a b h_le).ret ≠ none) := by {
+(∃ i, a ≤ i ∧ i ≤ b ∧ arr[i] = q) ↔ ((contains_bs.bs_aux arr q a b h_le).ret ≠ none) := by {
     fun_induction contains_bs.bs_aux
     · simp only [Bind.bind, tick, Pure.pure, pure, ret_bind, ne_eq]
       split_ifs <;> grind
@@ -113,14 +116,14 @@ where bs_correct_aux (n : ℕ) (q : α) (arr : SortedArrayFun α n) (a b : ℕ) 
 
 
 theorem bs_return_correct_idx (n : ℕ) (q : α) (arr : SortedArrayFun α n) :
-  ∀ i, (contains_bs arr q).ret = some i → arr.get i = q := by
+  ∀ i, (contains_bs arr q).ret = some i → arr[i] = q := by
     intro i hi
     apply bs_return_correct_idx_aux n q 0 (n-1) (by omega)
     rw [contains_bs.eq_def] at hi
     exact hi
 where bs_return_correct_idx_aux (n : ℕ) (q : α) (a b : ℕ)
   (h_ab : a ≤ b) (arr : SortedArrayFun α n) :
-  ∀ i : ℕ, (contains_bs.bs_aux arr q a b h_ab).ret = some i → arr.get i = q := by {
+  ∀ i : ℕ, (contains_bs.bs_aux arr q a b h_ab).ret = some i → arr[i] = q := by {
     fun_induction contains_bs.bs_aux <;> all_goals (simp; split_ifs<;> grind)
   }
 
