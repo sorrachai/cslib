@@ -33,6 +33,7 @@ See [Danielsson2008] for the discussion.
 -/
 namespace Cslib.Algorithms.Lean
 
+
 /-- A monad for tracking time complexity of computations.
 `TimeM α` represents a computation that returns a value of type `α`
 and accumulates a time cost (represented as a natural number). -/
@@ -45,49 +46,82 @@ structure TimeM (α : Type*) where
 namespace TimeM
 
 /-- Lifts a pure value into a `TimeM` computation with zero time cost. -/
-@[scoped grind =]
-def pure {α} (a : α) : TimeM α :=
+private def pure {α} (a : α) : TimeM α :=
   ⟨a, 0⟩
 
 /-- Sequentially composes two `TimeM` computations, summing their time costs. -/
-@[scoped grind =]
-def bind {α β} (m : TimeM α) (f : α → TimeM β) : TimeM β :=
+private def bind {α β} (m : TimeM α) (f : α → TimeM β) : TimeM β :=
   let r := f m.ret
   ⟨r.ret, m.time + r.time⟩
 
+-- The Monad Instance
 instance : Monad TimeM where
   pure := pure
   bind := bind
 
-/-- Creates a `TimeM` computation with a specified value and time cost.
-The time cost defaults to 1 if not provided. -/
-@[simp, grind =] def tick {α : Type*} (a : α) (c : ℕ := 1) : TimeM α := ⟨a, c⟩
 
-/-- Notation for `tick` with explicit time cost: `✓ a, c` -/
-scoped notation "✓" a:arg ", " c:arg => tick a c
+-- The `tick` function returns PUnit (separation of cost and value)
+/-- Advances the time cost by `c` (default 1) without changing the value. -/
+def tick (c : ℕ := 1) : TimeM PUnit := ⟨.unit, c⟩
 
-/-- Notation for `tick` with default time cost of 1: `✓ a` -/
-scoped notation "✓" a:arg => tick a
+-- Notation Macros
+-- This allows writing `✓ return x` or `✓ let y := ...` inside do blocks.
+macro "✓[" c:term "]" body:doElem : doElem => `(doElem| do TimeM.tick $c; $body:doElem)
+macro "✓" body:doElem : doElem => `(doElem| ✓[1] $body)
 
-/-- Notation for extracting the return value from a `TimeM` computation: `⟪tm⟫` -/
+/-- Notation for extracting the return value: `⟪tm⟫` -/
 scoped notation:max "⟪" tm "⟫" => (TimeM.ret tm)
 
-/-- A unit computation with time cost 1. -/
-def tickUnit : TimeM Unit :=
-  ✓ ()
-
-@[simp] theorem time_of_pure {α} (a : α) : (pure a).time = 0 := rfl
-
-@[simp] theorem time_of_bind {α β} (m : TimeM α) (f : α → TimeM β) :
- (TimeM.bind m f).time = m.time + (f m.ret).time := rfl
-
-@[simp] theorem time_of_tick {α} (a : α) (c : ℕ) : (tick a c).time = c := rfl
-
+-- Simplification Lemmas
+@[simp] theorem ret_pure {α} (a : α) : (pure a : TimeM α).ret = a := rfl
 @[simp] theorem ret_bind {α β} (m : TimeM α) (f : α → TimeM β) :
-  (TimeM.bind m f).ret = (f m.ret).ret := rfl
+  (m >>= f).ret = (f m.ret).ret := rfl
+@[simp] theorem ret_tick (c : ℕ) : (tick c).ret = () := rfl
+ -- This ensures 'ret' moves inside 'if-then-else' blocks
+@[simp] theorem ret_ite {α} (c : Prop) [Decidable c] (t e : TimeM α) :
+  (if c then t else e).ret = if c then t.ret else e.ret := by split <;> rfl
+-- Ensure 'ret' can see through the Monad instance 'pure'
+@[simp] theorem ret_monad_pure {α} (a : α) :
+  (return a : TimeM α).ret = a := rfl
 
--- this allow us to simplify the chain of monadic compositions
-attribute [simp] Bind.bind Pure.pure TimeM.pure TimeM.bind
+@[simp] theorem time_bind {α β} (m : TimeM α) (f : α → TimeM β) :
+  (m >>= f).time = m.time + (f m.ret).time := rfl
+@[simp] theorem time_pure {α} (a : α) : (Pure.pure a : TimeM α).time = 0 := rfl
+@[simp] theorem time_tick (c : ℕ) : (tick c).time = c := rfl
+
+@[simp] theorem time_ite {α} (prop : Prop) [Decidable prop] (t e : TimeM α) :
+  (if prop then t else e).time = if prop then t.time else e.time := by
+  split <;> rfl
+
+-- Rules for Functor/Applicative (map and seq)
+@[simp] theorem ret_map {α β} (f : α → β) (m : TimeM α) : (f <$> m).ret = f m.ret := rfl
+@[simp] theorem time_map {α β} (f : α → β) (m : TimeM α) : (f <$> m).time = m.time := rfl
+
+@[simp] theorem ret_seq {α β} (f : TimeM (α → β)) (x : TimeM α) :
+  (f <*> x).ret = f.ret x.ret := rfl
+@[simp] theorem time_seq {α β} (f : TimeM (α → β)) (x : TimeM α) :
+  (f <*> x).time = f.time + x.time := rfl
+
+@[congr]
+theorem bind_congr {α β} {m1 m2 : TimeM α} {f1 f2 : α → TimeM β}
+    (h_m : m1 = m2) (h_f : ∀ x, f1 x = f2 x) : m1 >>= f1 = m2 >>= f2 := by
+  subst h_m
+  exact _root_.bind_congr h_f
+
+-- SeqRight (*>)
+@[simp] theorem ret_seqRight {α β} (x : TimeM α) (y : TimeM β) :
+  (x *> y).ret = y.ret := rfl
+
+@[simp] theorem time_seqRight {α β} (x : TimeM α) (y : TimeM β) :
+  (x *> y).time = x.time + y.time := rfl
+
+-- SeqLeft (<*)
+@[simp] theorem ret_seqLeft {α β} (x : TimeM α) (y : TimeM β) :
+  (x <* y).ret = x.ret := rfl
+
+@[simp] theorem time_seqLeft {α β} (x : TimeM α) (y : TimeM β) :
+  (x <* y).time = x.time + y.time := rfl
 
 end TimeM
+
 end Cslib.Algorithms.Lean

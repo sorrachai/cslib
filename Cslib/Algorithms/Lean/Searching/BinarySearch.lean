@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Sorrachai Yingchareonthawornhcai
 -/
 
-import Cslib.Algorithms.Lean.TimeM
+import Cslib.Algorithms.Lean.TimeM'
 import Mathlib.Algebra.Order.Group.Nat
 import Mathlib.Algebra.Order.Sub.Basic
 import Mathlib.Data.Nat.Log

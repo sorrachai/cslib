@@ -4,7 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Sorrachai Yingchareonthawornhcai
 -/
 
-import Cslib.Algorithms.Lean.TimeM
+import Cslib.Algorithms.Lean.TimeM'
 import Mathlib.Data.Nat.Cast.Order.Ring
 import Mathlib.Data.Nat.Lattice
 import Mathlib.Data.Nat.Log
@@ -36,7 +36,7 @@ def merge :  List α → List α → TimeM (List α)
   | [], ys => return ys
   | xs, [] => return xs
   | x::xs', y::ys' => do
-    ✓ let c := x ≤ y
+    let c ← ✓ (x ≤ y : Bool)
     if c then
       let rest ← merge xs' (y::ys')
       return (x :: rest)
@@ -49,15 +49,13 @@ Returns a `TimeM (List α)` where the time represents the total number of compar
 def mergeSort (xs : List α) : TimeM (List α) :=  do
   if xs.length < 2 then return xs
   else
-    let half := xs.length / 2
-    let L := xs.take half
-    let R := xs.drop half
-    let L' ← mergeSort L
-    let R' ← mergeSort R
-    let result ←  merge L' R'
-    return result
+    let half  := xs.length / 2
+    let left  := xs.take half
+    let right := xs.drop half
+    let sortedLeft  ← mergeSort left
+    let sortedRight ← mergeSort right
+    merge sortedLeft sortedRight
 
-#eval mergeSort [3,2,4,5,1,10,20]
 section Correctness
 
 open List
@@ -65,50 +63,50 @@ open List
 /-- A list is sorted if it satisfies the `Pairwise (· ≤ ·)` predicate. -/
 abbrev IsSorted (l : List α) : Prop := List.Pairwise (· ≤ ·) l
 
-/-- `x` is less than a minimum element of list `l` if `x ≤ b` for all `b ∈ l`. -/
-abbrev LessThanAll (x : α) (l : List α) : Prop := ∀ b ∈ l, x ≤ b
+/-- `x` is a minimum element of list `l` if `x ≤ b` for all `b ∈ l`. -/
+abbrev MinOfList (x : α) (l : List α) : Prop := ∀ b ∈ l, x ≤ b
 
 @[grind →]
 theorem mem_either_merge (xs ys : List α) (z : α) (hz : z ∈ ⟪merge xs ys⟫) : z ∈ xs ∨ z ∈ ys := by
   fun_induction merge
   · exact mem_reverseAux.mp hz
-  · simp_all only [imp_false, ret_monad_pure, not_mem_nil, or_false]
-  · expose_names
-    simp_all only [mem_cons, ret_bind, ret_ite, ret_monad_pure]
+  · left
+    exact hz
+  · simp_all only [Bind.bind, Pure.pure]
     grind
 
-theorem min_all_merge (x : α) (xs ys : List α) (hxs : LessThanAll x xs) (hys : LessThanAll x ys) :
-    LessThanAll x ⟪merge xs ys⟫ := by  grind
+theorem min_all_merge (x : α) (xs ys : List α) (hxs : MinOfList x xs) (hys : MinOfList x ys) :
+    MinOfList x ⟪merge xs ys⟫ := by
+  grind
 
 theorem sorted_merge {l1 l2 : List α} (hxs : IsSorted l1) (hys : IsSorted l2) :
     IsSorted ⟪merge l1 l2⟫ := by
   fun_induction merge l1 l2 with
   | case3 =>
-    simp only [ret_bind, ret_ite, ret_monad_pure]
+    simp only [Bind.bind, Pure.pure]
     grind [pairwise_cons]
   | _ => simpa
 
 theorem mergeSort_sorted (xs : List α) : IsSorted ⟪mergeSort xs⟫ := by
   fun_induction mergeSort xs with
   | case1 x =>
-    simp only [ret_monad_pure]
+    simp only [Pure.pure]
     rcases x with _ | ⟨a, _ | ⟨b, rest⟩⟩ <;> grind
-  | case2 _ _ _ _ _ ih2 ih1 =>
-    exact sorted_merge ih2 ih1
+  | case2 _ _ _ _ _ ih2 ih1 => exact sorted_merge ih2 ih1
 
 lemma merge_perm (l₁ l₂ : List α) : ⟪merge l₁ l₂⟫ ~ l₁ ++ l₂ := by
   fun_induction merge with
   | case1 => simp
   | case2 => simp
   | case3 =>
-    simp only [ret_bind, ret_ite, ret_monad_pure, cons_append]
+    simp only [Bind.bind, Pure.pure]
     grind
 
 theorem mergeSort_perm (xs : List α) : ⟪mergeSort xs⟫ ~ xs := by
   fun_induction mergeSort xs with
   | case1 => simp
   | case2 x _ _ left right ih2 ih1 =>
-    simp only [ret_bind]
+    simp only [Bind.bind, ret_bind]
     calc
       ⟪merge ⟪mergeSort left⟫ ⟪mergeSort right⟫⟫  ~
       ⟪mergeSort left⟫ ++ ⟪mergeSort right⟫  := by apply merge_perm
@@ -183,41 +181,39 @@ theorem timeMergeSortRec_le (n : ℕ) : timeMergeSortRec n ≤ T n := by
   | case2 => grind
   | case3 n ih2 ih1 =>
     grw [ih1,ih2]
-    grind [Nat.add_div_right, some_algebra n]
+    have := some_algebra n
+    grind [Nat.add_div_right]
 
 @[simp] theorem merge_ret_length_eq_sum (xs ys : List α) :
     ⟪merge xs ys⟫.length = xs.length + ys.length := by
   fun_induction merge with
   | case3 =>
-    simp only [ret_bind, ret_ite, ret_monad_pure, List.length_cons]
+    simp only [Pure.pure, Bind.bind]
     grind
   | _ => simp
 
 @[simp] theorem mergeSort_same_length (xs : List α) :
   ⟪mergeSort xs⟫.length = xs.length := by
   fun_induction mergeSort
-  · simp only [ret_monad_pure]
-  · simp only [ret_bind, ret_monad_pure, merge_ret_length_eq_sum]
+  · simp
+  · simp only [Bind.bind]
     grind [merge_ret_length_eq_sum]
 
 @[simp] theorem merge_time (xs ys : List α) : (merge xs ys).time ≤ xs.length + ys.length := by
   fun_induction merge with
   | case3 =>
-    expose_names
-    simp only [time_bind, time_tick, time_ite, time_pure, add_zero,
-      List.length_cons]
+    simp only [Pure.pure, Bind.bind]
     grind
-  | _ => simp only [time_pure, List.length_nil, add_zero, zero_le]
-
+  | _ => simp
 
 theorem mergeSort_time_le (xs : List α) :
   (mergeSort xs).time ≤ timeMergeSortRec xs.length := by
   fun_induction mergeSort with
   | case1 =>
-    simp only [time_pure, zero_le]
+    simp only [Pure.pure]
+    grind
   | case2 _ _ _ _ _ ih2 ih1 =>
-    expose_names
-    simp only [time_bind, time_pure, add_zero]
+    simp only [Bind.bind, time_of_bind]
     grw [merge_time]
     simp only [mergeSort_same_length]
     unfold timeMergeSortRec
